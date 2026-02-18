@@ -1,0 +1,13 @@
+# Ignore data and output
+inbox/*
+!inbox/.gitkeep
+drafts/*
+!drafts/.gitkeep
+outputs/*
+!outputs/.gitkeep
+archive/*
+!archive/.gitkeep
+
+# System and editor files
+.DS_Store
+*.swp
