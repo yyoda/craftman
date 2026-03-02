@@ -76,7 +76,7 @@ class CraftsmanTools:
             }
         except Exception as e:
             logger.error(f"Error processing {filename}: {e}")
-            return {"status": "error", "message":Str(e)}
+            return {"status": "error", "message": f"{str(e)}"}
 
     def process_all_files(self):
         """
