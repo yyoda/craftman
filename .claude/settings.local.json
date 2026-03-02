@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:azure.microsoft.com)",
+      "WebFetch(domain:techcommunity.microsoft.com)"
+    ]
+  }
+}
