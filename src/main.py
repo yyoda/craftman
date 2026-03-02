@@ -24,45 +24,103 @@ def ensure_directories():
             os.makedirs(d)
             # logger.info(f"Created directory: {d}")
 
-def process_single_file(filepath, architect):
+def process_single_file(filepath, architect, auto_archive=False):
     logger.info(f"Processing file: {filepath}")
+    
+    # Check for guidelines to remind the Architect
+    try:
+        if os.path.exists(REFERENCES_DIR):
+            guidelines = [f for f in os.listdir(REFERENCES_DIR) 
+                          if not f.startswith('.') and 'guide' in f.lower()]
+            if guidelines:
+                print(f"🔔 Context Reminder: Apply rules from {', '.join(guidelines)} during generation.")
+    except Exception:
+        pass
+
     try:
         architect.process_file(filepath)
+        print(f"✅ Draft created for {os.path.basename(filepath)}")
         
         # Move source file to archive
-        filename = os.path.basename(filepath)
-        archive_path = os.path.join(ARCHIVE_DIR, filename)
-        
-        # Handle duplicate archive names (simple rename strategy)
-        if os.path.exists(archive_path):
-            name, ext = os.path.splitext(filename)
-            timestamp = time.strftime("%Y%m%d%H%M%S")
-            archive_path = os.path.join(ARCHIVE_DIR, f"{name}_{timestamp}{ext}")
+        if auto_archive:
+            filename = os.path.basename(filepath)
+            archive_path = os.path.join(ARCHIVE_DIR, filename)
+            
+            # Handle duplicate archive names (simple rename strategy)
+            if os.path.exists(archive_path):
+                name, ext = os.path.splitext(filename)
+                timestamp = time.strftime("%Y%m%d%H%M%S")
+                archive_path = os.path.join(ARCHIVE_DIR, f"{name}_{timestamp}{ext}")
 
-        os.rename(filepath, archive_path)
-        logger.info(f"Archived input file to: {archive_path}")
+            os.rename(filepath, archive_path)
+            logger.info(f"Archived input file to: {archive_path}")
 
     except Exception as e:
         logger.error(f"Error processing {filepath}: {e}")
 
+def list_available_resources():
+    """List templates and guidelines in references directory."""
+    resources = {"templates": [], "guidelines": []}
+    try:
+        if not os.path.exists(REFERENCES_DIR):
+            return resources
+        
+        for f in os.listdir(REFERENCES_DIR):
+            if f.startswith('.'): continue
+            
+            f_lower = f.lower()
+            if f_lower.endswith(('.docx', '.pptx', '.potx', '.dotx')):
+                resources["templates"].append(f)
+            elif f_lower.endswith(('.md', '.txt', '.pdf')) and 'guide' in f_lower:
+                resources["guidelines"].append(f)
+                
+    except Exception as e:
+        logger.error(f"Error checking resources: {e}")
+    return resources
+
 def interactive_menu(inbox_mgr, architect):
     while True:
+        # Check resources on every loop to keep AI context fresh
+        resources = list_available_resources()
+        
         print("\n=== Craftsman Engine Menu ===")
-        print("1. Scan Inbox (List files)")
-        print("2. Process ALL files in Inbox")
-        print("3. Process specific file")
+        
+        if resources["templates"]:
+            print(f"📂 Custom Templates ({len(resources['templates'])}):")
+            for t in resources["templates"]:
+                print(f"   - references/{t}")
+            print("   👉 AI Note: Prioritize these over default templates.")
+        
+        if resources["guidelines"]:
+            print(f"📘 Style Guidelines ({len(resources['guidelines'])}):")
+            for g in resources["guidelines"]:
+                print(f"   - references/{g}")
+            print("   👉 AI Note: Read these guidelines using 'read_file' before generating content.")
+            
+        if resources["templates"] or resources["guidelines"]:
+             print("-----------------------------")
+        print("1. [Input Watcher] Scan Inbox (List files)")
+        print("2. [Document Architect] Process ALL files (Draft Only)")
+        print("3. [Document Architect] Process specific file (Draft Only)")
+        print("4. [Delivery Manager] Archive processed inputs")
         print("q. Quit")
         
         choice = input("Select an option > ").strip().lower()
         
         if choice == '1':
+            print("\n🤖 Input Watcher: Scanning for new data...")
             files = inbox_mgr.list_files()
             if files:
-                print(f"\n[Files in {INBOX_DIR}]")
+                print(f"[Files in {INBOX_DIR}]")
                 for i, f in enumerate(files, 1):
-                    print(f"{i}. {f}")
+                    filepath = os.path.join(INBOX_DIR, f)
+                    size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
+                    print(f"{i}. {f} ({size} bytes)")
+                
+                print("\n💡 Input Watcher Tip: Next, ask AI to Create a Plan.")
+                print("   Example: 'Analyze inbox/FILE and save a plan to drafts/plan_FILE.md'")
             else:
-                print("\n[Inbox is empty]")
+                print("[Inbox is empty]")
 
         elif choice == '2':
             files = inbox_mgr.scan_files()
@@ -70,11 +128,12 @@ def interactive_menu(inbox_mgr, architect):
                 print("\n[No files to process]")
                 continue
             
-            confirm = input(f"Are you sure you want to process {len(files)} files? (y/n) > ")
+            confirm = input(f"Generate drafts for {len(files)} files? (y/n) > ")
             if confirm.lower() == 'y':
+                print("\n🤖 Document Architect: Starting batch draft generation...")
                 for fp in files:
-                    process_single_file(fp, architect)
-                print("\n[All files processed]")
+                    process_single_file(fp, architect, auto_archive=False)
+                print("\n✅ Batch processing completed. Check 'drafts/' folder.")
         
         elif choice == '3':
             files = inbox_mgr.list_files()
@@ -97,11 +156,36 @@ def interactive_menu(inbox_mgr, architect):
                 if 1 <= idx <= len(files):
                     filename = files[idx-1]
                     filepath = os.path.join(INBOX_DIR, filename)
-                    process_single_file(filepath, architect)
+                    
+                    print(f"\n🤖 Document Architect: Processing {filename}...")
+                    process_single_file(filepath, architect, auto_archive=False)
+                    print(f"✅ Draft created. Original file remains in inbox.")
                 else:
                     print("Invalid selection.")
             except ValueError:
                 print("Invalid input.")
+
+        elif choice == '4':
+            print("\n🤖 Delivery Manager: Moving processed files to archive...")
+            files = inbox_mgr.list_files()
+            if not files:
+                print("[No files in inbox to archive]")
+            else:
+                # In a real scenario, we might want to select which files to archive
+                confirm = input(f"Archive ALL {len(files)} files in inbox? (y/n) > ")
+                if confirm.lower() == 'y':
+                    for f in files:
+                        src = os.path.join(INBOX_DIR, f)
+                        dst = os.path.join(ARCHIVE_DIR, f)
+                        
+                        if os.path.exists(dst):
+                             name, ext = os.path.splitext(f)
+                             timestamp = time.strftime("%Y%m%d%H%M%S")
+                             dst = os.path.join(ARCHIVE_DIR, f"{name}_{timestamp}{ext}")
+                        
+                        os.rename(src, dst)
+                        print(f"Archived: {f}")
+                    print("✅ Archive completed.")
 
         elif choice == 'q':
             print("Exiting...")
