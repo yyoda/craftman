@@ -1,104 +1,97 @@
 import os
-import shutil
-import time
 import logging
-import json
-import yaml
-import pandas as pd
-from jinja2 import Environment, FileSystemLoader
+import importlib.util
+import time
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('DocumentArchitect')
 
 class DocumentArchitectAgent:
-    def __init__(self, template_dir, output_dir):
-        self.template_dir = template_dir
-        self.output_dir = output_dir
-        self.env = Environment(loader=FileSystemLoader(template_dir))
+    """
+    Document Architect Agent.
+    
+    Responsible for executing "recipes" - Python scripts that generate documents.
+    These recipes are picked up from the inbox and executed to produce drafts.
+    """
+    def __init__(self, inbox_dir, drafts_dir):
+        self.inbox_dir = inbox_dir
+        self.drafts_dir = drafts_dir
+        
+        # Ensure directories exist
+        os.makedirs(self.inbox_dir, exist_ok=True)
+        os.makedirs(self.drafts_dir, exist_ok=True)
+        
+        logger.info(f"Initialized DocumentArchitectAgent watching {self.inbox_dir}, outputting to {self.drafts_dir}")
 
-    def generate_document(self, input_data, template_name, output_filename):
+    def execute_recipe(self, recipe_path):
         """
-        Generates a document from input data using a template.
+        Dynamically loads and executes a Python recipe file.
+        The recipe file must have a `generate(output_dir)` function.
         """
+        recipe_name = os.path.basename(recipe_path)
+        logger.info(f"Executing recipe: {recipe_name}")
+        
         try:
-            logger.info(f"Generating document using template: {template_name}")
-            template = self.env.get_template(template_name)
-            content = template.render(data=input_data)
+            # Load the module dynamically
+            spec = importlib.util.spec_from_file_location("recipe_module", recipe_path)
+            if spec is None or spec.loader is None:
+                logger.error(f"Could not load spec for recipe: {recipe_path}")
+                return False
+                
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
             
-            output_path = os.path.join(self.output_dir, output_filename)
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            # Check for generate function
+            if not hasattr(module, 'generate'):
+                logger.error(f"Recipe {recipe_name} does not contain a 'generate(output_dir)' function.")
+                return False
             
-            logger.info(f"Document generated at: {output_path}")
-            return output_path
+            # Execute generation
+            logger.info(f"Calling generate() for {recipe_name}...")
+            start_time = time.time()
+            result = module.generate(self.drafts_dir)
+            end_time = time.time()
+            
+            logger.info(f"Recipe {recipe_name} executed successfully in {end_time - start_time:.2f}s. Result: {result}")
+            return result
+            
         except Exception as e:
-            logger.error(f"Failed to generate document: {e}")
-            raise
+            logger.error(f"Failed to execute recipe {recipe_name}: {e}", exc_info=True)
+            return False
 
-    def process_file(self, filepath):
+    def process_inbox(self):
         """
-        Main processing logic for a given file.
-        Determines the type and calls appropriate generation method.
-        Returns the output path of the generated document.
+        Iterates over Python files in the inbox and executes them as recipes.
         """
-        logger.info(f"Processing file: {filepath}")
-        
-        # Determine file type
-        filename = os.path.basename(filepath)
-        name, ext = os.path.splitext(filename)
-        
-        output_path = None
-        
-        if ext == '.json':
-            with open(filepath, 'r') as f:
-                input_data = json.load(f)
+        logger.info(f"Checking inbox {self.inbox_dir} for recipes...")
+        try:
+            files = [f for f in os.listdir(self.inbox_dir) if f.endswith('.py')]
+        except FileNotFoundError:
+             logger.warning(f"Inbox directory {self.inbox_dir} does not exist.")
+             return []
+
+        if not files:
+            logger.info("No recipe files (.py) found in inbox.")
+            return []
+
+        results = []
+        for filename in files:
+            file_path = os.path.join(self.inbox_dir, filename)
+            logger.info(f"Found recipe: {filename}")
             
-            # Use 'report_template.md' by default for now
-            output_path = self.generate_document(input_data, 'report-template.md', f"{name}_report.md")
-        
-        elif ext == '.yaml' or ext == '.yml':
-            with open(filepath, 'r') as f:
-                input_data = yaml.safe_load(f)
-            output_path = self.generate_document(input_data, 'report-template.md', f"{name}_report.md")
-
-        elif ext == '.csv':
-            logger.info("Detected CSV file. Processing as raw data list.")
-            import pandas as pd
-            df = pd.read_csv(filepath)
-            input_data = df.to_dict(orient='records')
-            # For now, just generate a simple report
-            report_data = {
-                "title": f"CSV Report: {name}",
-                "content": f"Found {len(input_data)} records.",
-                "summary": "This report was generated from CSV data.",
-                "generated_at": time.strftime("%Y-%m-%d %H:%M:%S")
-            }
-            output_path = self.generate_document(report_data, 'report-template.md', f"{name}_report.md")
-        
-        elif ext == '.xlsx':
-             logger.info("Detected Excel file. Processing first sheet.")
-             import pandas as pd
-             df = pd.read_excel(filepath)
-             input_data = df.to_dict(orient='records')
-             report_data = {
-                "title": f"Excel Report: {name}",
-                "content": f"Found {len(input_data)} records from first sheet.",
-                "summary": "This report was generated from Excel data.",
-                "generated_at": time.strftime("%Y-%m-%d %H:%M:%S")
-            }
-             output_path = self.generate_document(report_data, 'report-template.md', f"{name}_report.md")
-
-        else:
-            logger.warning(f"Unsupported file type: {ext}")
-            return None
+            result = self.execute_recipe(file_path)
+            results.append((filename, result))
             
-        return output_path
-
+        return results
 
 if __name__ == "__main__":
-    # Test
-    agent = DocumentArchitectAgent("./references", "./drafts")
-    # Mock data
-    data = {"title": "Test Report", "content": "This is a test."}
-    # agent.generate_document(data, 'report-template.md', 'test_report.md')
+    # simple test if run directly
+    import argparse
+    parser = argparse.ArgumentParser(description='Run Document Architect Agent')
+    parser.add_argument('--inbox', default='inbox', help='Inbox directory')
+    parser.add_argument('--drafts', default='drafts', help='Drafts directory')
+    args = parser.parse_args()
+
+    agent = DocumentArchitectAgent(args.inbox, args.drafts)
+    agent.process_inbox()

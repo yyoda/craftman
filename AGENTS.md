@@ -1,43 +1,47 @@
-# エージェント構成とワークフロー
+# エージェント構成とワークフロー (Craftman 2.0)
 
-本プロジェクトは、3つの役割（ロール）によるバケツリレー方式で進行します。
+本プロジェクトは、3つの役割（ロール）による「レシピ駆動」のバケツリレー方式で進行します。
 
-## 1. Input Watcher (分析・計画)
-**「何を作るか決める」**
-- **Trigger**: `inbox/` にファイルが置かれた時
+## 1. Input Watcher (分析・設計)
+**「何を作るか決め、レシピを書く」**
+- **Trigger**: `inbox/` にデータファイル（`.json`, `.csv`, `.md` 等）、またはユーザーからの生成指示が投入された時
 - **Task**: 
   - データのバリデーション（形式、欠損値の確認）
-  - 生成ドキュメントの構成案（Plan）の作成
-- **Output**: `drafts/plan_[filename].md`
-  - 必須項目: `Target Audience`, `Key Messages`, `Proposed Structure`
+  - 生成要件（フォーマット、デザイン、ターゲット読者）の定義
+  - **重要**: Python レシピ (`inbox/recipe_xxx.py`) の生成
+    - 必須要件: `def generate(output_dir):` 関数を持つこと
+    - 依存ライブラリやデータパスを正しく設定すること
+- **Output**: `inbox/recipe_[name].py`
 
-
-## 2. Document Architect (設計・構築)
-**「実際に形にする」**
-- **Trigger**: `drafts/` の構成案が承認された時、または `inbox/` のデータを直接処理する時
+## 2. Document Architect (構築・実行)
+**「レシピを実行し、形にする」**
+- **Trigger**: `inbox/` に Python レシピ (`recipe_*.py`) が生成された時
 - **Task**: 
-  - テンプレートの適用（指定がない場合は `docx`/`pptx` スキルのデフォルトを使用）
-  - **重要**: カスタムテンプレートを使用する場合は、必ず `references/` 内のパスを指示に含めること
-  - コンテンツ生成
-- **Output**: `drafts/` 内の `.docx`, `.pptx` ファイル（v1, v2...）
+  - レシピのサンドボックス実行 (`python recipe_xxx.py` 相当)
+  - 実行エラー時のデバッグと修正
+  - 生成物 (`drafts/`) の確認
+- **Output**: `drafts/` 内の生成物（`.pptx`, `.docx`, `.pdf` 等）
 
 ## 3. Delivery Manager (品質・納品)
 **「整えて片付ける」**
-- **Trigger**: 人間によるレビュー完了後
+- **Trigger**: `drafts/` の生成物に対し、人間によるレビュー完了（OK）が出た時
 - **Task**: 
   - ファイル名の正規化（`v1` などのサフィックス除去）
-  - `drafts/` から `outputs/` への移動
-  - 使用済み入力データの `inbox/` から `archive/` への移動
+  - `drafts/` から `outputs/` への移動（納品）
+  - 使用済みレシピとデータの `inbox/` から `archive/` (または `examples/`) への移動
 - **Output**: `outputs/` 内の最終成果物
 
 ---
 
-## 補足: スキルの利用制限
+## 補足: スキルの利用方針
 
-`.agents/skills/` ディレクトリには多数の汎用スキルが含まれていますが、本プロジェクトでは以下を**非推奨**とします（ドキュメント生成に関係がないため）。
-AIは指示がない限り、これらを使用しないでください。
+`.agents/skills/` ディレクトリのスキルは、Input Watcher がレシピコードを書く際の「コーディング規約・デザインガイド」として機能します。
 
-- `mcp-builder`: システム開発用
-- `webapp-testing`: Webアプリケーションテスト用
-- `web-artifacts-builder`: Webアプリ構築用 (HTMLドキュメント生成には `frontend-design` を使用可)
+- **推奨スキル**:
+  - `pptx` / `docx`: 各フォーマット生成時のコード実装パターンとして参照
+  - `theme-factory` / `brand-guidelines`: 配色やフォント指定のルールとして参照
+  - `internal-comms`: 文章構成やトーン＆マナーの指針として参照
+
+- **非推奨スキル**:
+  - `mcp-builder`, `webapp-testing` など、ドキュメント生成に直接関与しないもの。
 
