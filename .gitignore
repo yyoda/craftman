@@ -11,3 +11,5 @@ archive/*
 # System and editor files
 .DS_Store
 *.swp
+
+.venv/
